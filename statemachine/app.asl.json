@@ -1,0 +1,112 @@
+{
+  "Comment": "A description of my state machine",
+  "StartAt": "Pass Instance Id",
+  "States": {
+    "Pass Instance Id": {
+      "Type": "Pass",
+      "Next": "Send Run Command",
+      "Result": {
+        "instance_ids": ["i-0000000000000"]
+      }
+    },
+    "Send Run Command": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "Payload": {
+          "execution_id.$": "$$.Execution.Id",
+          "instance_ids.$": "$.instance_ids"
+        },
+        "FunctionName": "${SendRunCommandFunctionArn}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "Wait Run Command Execution"
+    },
+    "Wait Run Command Execution": {
+      "Type": "Wait",
+      "Seconds": 5,
+      "Next": "Poll Run Command"
+    },
+    "Poll Run Command": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "Payload": {
+          "execution_id.$": "$$.Execution.Id",
+          "command_id.$": "$.command_id",
+          "instance_ids.$": "$.instance_ids"
+        },
+        "FunctionName": "${PollRunCommandFunctionArn}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "Check Run Command Under Execution"
+    },
+    "Check Run Command Under Execution": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.is_under_execution",
+          "BooleanEquals": true,
+          "Next": "Wait Run Command Execution"
+        }
+      ],
+      "Default": "Make Run Command Summary"
+    },
+    "Make Run Command Summary": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "Payload": {
+          "execution_id.$": "$$.Execution.Id",
+          "command_id.$": "$.command_id",
+          "instance_ids.$": "$.instance_ids"
+        },
+        "FunctionName": "${MakeRunCommandSummaryFunction}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "Success"
+    },
+    "Success": {
+      "Type": "Succeed"
+    }
+  }
+}

@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  SSM Run Command Orchestration
+
+Resources:
+  StateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: SSMRunCommandOrchestration
+      DefinitionUri: statemachine/app.asl.json
+      DefinitionSubstitutions:
+        SendRunCommandFunctionArn: !GetAtt SendRunCommandFunction.Arn
+        PollRunCommandFunctionArn: !GetAtt PollRunCommandFunction.Arn
+        MakeRunCommandSummaryFunction: !GetAtt MakeRunCommandSummaryFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref SendRunCommandFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref PollRunCommandFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref MakeRunCommandSummaryFunction
+
+  SendRunCommandFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: SendRunCommand
+      CodeUri: functions/send_run_command/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      Role: !GetAtt FunctionBaseRole.Arn
+      Environment:
+        Variables:
+          LOG_BUCKET: !Ref Bucket
+          LOG_BUCKET_REGION: !Ref AWS::Region
+      Architectures:
+        - x86_64
+
+  PollRunCommandFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: PollRunCommand
+      CodeUri: functions/poll_run_command/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      Role: !GetAtt FunctionBaseRole.Arn
+      Environment:
+        Variables:
+          LOG_BUCKET: !Ref Bucket
+          LOG_BUCKET_REGION: !Ref AWS::Region
+      Architectures:
+        - x86_64
+
+  MakeRunCommandSummaryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: MakeRunCommandSummary
+      CodeUri: functions/make_run_command_summary/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      Role: !GetAtt FunctionBaseRole.Arn
+      Environment:
+        Variables:
+          LOG_BUCKET: !Ref Bucket
+          LOG_BUCKET_REGION: !Ref AWS::Region
+      Architectures:
+        - x86_64
+
+  FunctionBaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: FunctionBaseRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      Policies:
+        - PolicyName: SSMPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                  - ssm:Get*
+                Resource:
+                  - "*"
+        - PolicyName: S3Policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !GetAtt Bucket.Arn
+                  - !Join [ "/", [ !GetAtt Bucket.Arn, "*" ] ]
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: run-command-log-bucket
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+
+Outputs:
+  StateMachineArn:
+    Description: "State machine ARN"
+    Value: !Ref StateMachine
+
+  StateMachineRoleArn:
+    Description: "IAM Role created for State machine based on the specified SAM Policy Templates"
+    Value: !GetAtt StateMachineRole.Arn
+
+  BucketName:
+    Description: "Log Bucket for SSM Run Command execution"
+    Value: !Ref Bucket
